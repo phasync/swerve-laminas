@@ -1,0 +1,84 @@
+# 2026-09-28 Intel(R) Xeon(R) CPU E5-2697 v3 @ 2.60GHz, 56 CPUs
+# PHP 8.5.11, laminas-mvc 3.8.0, swerve 0.1.0-alpha12 (PHP 8.5.11, phasync 2.0.0-alpha11, phasync-ext 0.5.0-alpha8) 
+# wrk -t4 -c64 -d10s after a 3 s warm-up; 4 PHP-FPM children or 4 swerve workers
+## php-fpm /test/json
+Running 10s test @ http://127.0.0.1:19001/test/json
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    22.28ms    1.68ms  36.89ms   85.69%
+    Req/Sec   720.64     57.45   808.00     62.00%
+  28706 requests in 10.03s, 7.01MB read
+Requests/sec:   2861.94
+Transfer/sec:    715.48KB
+## php-fpm /
+Running 10s test @ http://127.0.0.1:19001/
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    30.10ms    2.84ms  52.04ms   85.86%
+    Req/Sec   533.01     52.01   646.00     73.00%
+  21240 requests in 10.02s, 113.72MB read
+Requests/sec:   2118.92
+Transfer/sec:     11.34MB
+## php-fpm /test/counter
+Running 10s test @ http://127.0.0.1:19001/test/counter
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    25.75ms    8.10ms 140.21ms   97.67%
+    Req/Sec   635.49     73.86   757.00     88.25%
+  25313 requests in 10.02s, 10.19MB read
+Requests/sec:   2525.22
+Transfer/sec:      1.02MB
+## swerve /test/json
+Running 10s test @ http://127.0.0.1:19001/test/json
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    18.08ms    6.61ms 100.83ms   54.84%
+    Req/Sec     0.89k    77.02     1.03k    68.50%
+  35428 requests in 10.02s, 5.27MB read
+Requests/sec:   3535.15
+Transfer/sec:    538.56KB
+## swerve /
+Running 10s test @ http://127.0.0.1:19001/
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    22.44ms    5.94ms  72.25ms   51.21%
+    Req/Sec   715.55     61.48     0.86k    69.00%
+  28502 requests in 10.03s, 149.88MB read
+Requests/sec:   2842.77
+Transfer/sec:     14.95MB
+## swerve /test/counter
+Running 10s test @ http://127.0.0.1:19001/test/counter
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    21.25ms    4.39ms 121.32ms   72.00%
+    Req/Sec   757.33     58.39     0.89k    78.75%
+  30160 requests in 10.02s, 7.53MB read
+Requests/sec:   3008.86
+Transfer/sec:    769.73KB
+## swerve + phasync-ext /test/json
+Running 10s test @ http://127.0.0.1:19001/test/json
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    18.29ms    5.65ms  79.20ms   69.97%
+    Req/Sec     0.88k   128.47     1.10k    55.25%
+  35191 requests in 10.03s, 5.24MB read
+Requests/sec:   3509.46
+Transfer/sec:    534.64KB
+## swerve + phasync-ext /
+Running 10s test @ http://127.0.0.1:19001/
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    22.66ms    5.70ms  94.99ms   92.98%
+    Req/Sec   709.83     90.07   840.00     68.25%
+  28271 requests in 10.02s, 148.66MB read
+Requests/sec:   2821.15
+Transfer/sec:     14.84MB
+## swerve + phasync-ext /test/counter
+Running 10s test @ http://127.0.0.1:19001/test/counter
+  4 threads and 64 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    22.67ms   10.56ms 124.05ms   77.60%
+    Req/Sec   721.23     67.17   830.00     90.25%
+  28726 requests in 10.03s, 7.18MB read
+Requests/sec:   2863.64
+Transfer/sec:    732.59KB

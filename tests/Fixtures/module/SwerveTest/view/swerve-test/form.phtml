@@ -1,0 +1,5 @@
+<?php $form = $this->form; $form->prepare(); ?>
+<?= $this->form()->openTag($form) ?>
+<?= $this->formRow($form->get('name')) ?>
+<?= $this->formHidden($form->get('csrf')) ?>
+<?= $this->form()->closeTag() ?>
