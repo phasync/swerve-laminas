@@ -39,6 +39,15 @@ class TestController extends AbstractActionController
         return new JsonModel(['framework' => 'laminas', 'ok' => true]);
     }
 
+    /** A wait of ?ms= (default 10) in usleep(), as a database query waits: it blocks the worker without phasync-ext. */
+    public function usleepAction()
+    {
+        $ms = (int) $this->params()->fromQuery('ms', 10);
+        \usleep(1000 * $ms);
+
+        return new JsonModel(['waited' => $ms]);
+    }
+
     public function formAction()
     {
         $form = new Form('contact');
