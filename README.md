@@ -29,6 +29,88 @@ vendor/bin/swerve --http=0.0.0.0:8080 --public=public swerve.php
 That's the whole setup. `public/index.php` stays as it is, so the same application still runs
 under PHP-FPM.
 
+## WebSockets
+
+A controller action returns `Swerve\Http\WebSocket::from()`, with the PSR-7 request that the
+handler puts in the Laminas request's metadata:
+
+```php
+use Psr\Http\Message\ServerRequestInterface;
+use Swerve\Http\WebSocket;
+
+public function chatAction()
+{
+    return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
+        foreach ($ws as $message) {            // ends when the client leaves
+            $ws->isBinary() ? $ws->sendBinary($message) : $ws->send("echo: $message");
+        }
+    });
+}
+```
+
+The callback runs after the action has returned, in a coroutine of its own. An ordinary GET to
+the route is answered `426 Upgrade Required`.
+
+**Server push.** A callback that only forwards a topic, and an ordinary action that publishes
+to it, in any worker:
+
+```php
+use Swerve\Swerve;
+
+public function newsAction()
+{
+    return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
+        foreach (Swerve::subscribe('news') as $message) {
+            $ws->send($message);
+        }
+    });
+}
+
+public function publishAction()
+{
+    Swerve::publish('news', json_encode(['headline' => $this->params()->fromPost('headline')]));
+
+    return new JsonModel(['published' => true]);
+}
+```
+
+The callback ends when its client leaves, with a close frame or without a word, and when the
+worker drains: clients then get a close frame with 1001.
+
+**The user.** Take what the callback needs from the request before `WebSocket::from()`:
+
+```php
+public function notificationsAction()
+{
+    $user = $this->auth->getIdentity();        // laminas-authentication, from the session
+
+    return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) use ($user) {
+        foreach (Swerve::subscribe("user:$user") as $message) {
+            $ws->send($message);
+        }
+    });
+}
+```
+
+The handler closes the session when the action returns, as PHP does at the end of a request.
+`getIdentity()`, a `Laminas\Session\Container` or anything else that reads the session inside the
+callback reads the session of whatever request the worker runs at that moment: none between
+requests, another visitor's during one. The tests show both.
+
+**Make the callback `static`.** A closure written in a controller method is bound to the
+controller, which holds the application: the socket then keeps the whole application, about
+300 KiB, until it closes. A `static` closure keeps what it `use`s. Measured with 200 sockets on
+one worker: 84 KiB a socket (swerve's WebSocket, its coroutines and subscription) with a static
+closure, 380 KiB with a bound one; both give everything back when the sockets close.
+
+**The worker keeps serving.** Laminas requests run one at a time per worker, but only until the
+action returns: open sockets and their subscriptions don't hold that turn. With 200 sockets
+open on one worker, each receiving messages, its ordinary requests were answered within 15 ms.
+
+Every client sees a topic's messages in the same order. Two messages published one right after
+the other through different workers may arrive in the other order
+([phasync/swerve#5](https://github.com/phasync/swerve/issues/5)).
+
 ## What changes
 
 | Laminas MVC skeleton, 4 workers | PHP-FPM | swerve | | swerve + phasync-ext |
@@ -67,22 +149,9 @@ Events from a controller action.
   cookie.
 - **Responses:** the Laminas response becomes a PSR-7 response. A `Laminas\Http\Response\Stream`
   is sent as it is read, and its file deleted afterwards when `setCleanup()` asks for it. A
-  controller action may return a PSR-7 response, which is sent as it is; the PSR-7 request is the
-  Laminas request's metadata:
-
-```php
-use Psr\Http\Message\ServerRequestInterface;
-use Swerve\Http\WebSocket;
-
-public function chatAction()
-{
-    return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), function (WebSocket $ws) {
-        foreach ($ws as $message) {
-            $ws->send("echo: $message");
-        }
-    });
-}
-```
+  controller action may return a PSR-7 response, which is sent as it is (see
+  [WebSockets](#websockets)); the PSR-7 request is the Laminas request's metadata
+  `Psr\Http\Message\ServerRequestInterface`.
 
 ## Mezzio
 
@@ -104,6 +173,32 @@ $factory   = $container->get(Mezzio\MiddlewareFactory::class);
 return $app;
 ```
 
+A WebSocket is a handler's response, and the user or session data come from the request's
+attributes before `WebSocket::from()`:
+
+```php
+use Mezzio\Authentication\UserInterface;
+use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Psr\Http\Server\RequestHandlerInterface;
+use Swerve\Http\WebSocket;
+use Swerve\Swerve;
+
+final class NewsHandler implements RequestHandlerInterface
+{
+    public function handle(ServerRequestInterface $request): ResponseInterface
+    {
+        $user = $request->getAttribute(UserInterface::class)?->getIdentity();
+
+        return WebSocket::from($request, static function (WebSocket $ws) use ($user) {
+            foreach (Swerve::subscribe('news') as $message) {
+                $ws->send($message);
+            }
+        });
+    }
+}
+```
+
 Requests run concurrently in a worker, so request state belongs in the request's attributes.
 Mezzio's `UrlHelper` is a shared service holding the last route result: called without a route
 name, it returns the URL of another request in flight.
@@ -111,8 +206,11 @@ name, it returns the URL of another request in flight.
 ## Before you deploy
 
 - `exit` and `die()` end the worker, and the requests it is serving with it.
-- A request holds its worker until it ends, as a PHP-FPM child does: size `--workers` as you
-  size `pm.max_children`.
+- A request holds its worker until its action returns, as a PHP-FPM child does: size
+  `--workers` as you size `pm.max_children`. A WebSocket's callback and a streamed response's
+  body don't hold it.
+- A WebSocket callback reads no session and no identity of its own: take them in the action,
+  and make the callback `static` (see [WebSockets](#websockets)).
 - laminas-session's `SessionManager` registers a shutdown function in its constructor, which
   keeps every manager until the worker exits. An application that gets the `SessionManager`
   service on every request, as laminas-session's documentation does in `onBootstrap()`, grows by

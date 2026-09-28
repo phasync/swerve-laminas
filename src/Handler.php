@@ -38,7 +38,9 @@ use Swerve\Http\Message\Response;
  * in PHP's session module; both are process-wide.
  *
  * A controller action may return a PSR-7 response, such as Swerve\Http\WebSocket::from(); the
- * PSR-7 request is the Laminas request's metadata Psr\Http\Message\ServerRequestInterface.
+ * PSR-7 request is the Laminas request's metadata Psr\Http\Message\ServerRequestInterface. A
+ * WebSocket's callback runs after the action returned, without the worker's turn and after the
+ * session was closed: the action takes the user and session data the callback needs.
  */
 final class Handler implements RequestHandlerInterface
 {
