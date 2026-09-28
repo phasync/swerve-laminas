@@ -189,25 +189,6 @@ test('a file download, the file deleted after it was sent', function () {
     expect(\file_exists($response['headers']['x-path'][0]))->toBeFalse();
 });
 
-test('a WebSocket from a controller action', function () {
-    $socket = \stream_socket_client('tcp://' . $GLOBALS['app']['addr']);
-    $key    = \base64_encode(\random_bytes(16));
-    \fwrite($socket, "GET /test/websocket HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n\r\n");
-    $head = '';
-    while (!\str_contains($head, "\r\n\r\n")) {
-        $head .= \fread($socket, 1);
-    }
-    expect($head)->toStartWith('HTTP/1.1 101')
-        ->toContain('Sec-WebSocket-Accept: ' . \base64_encode(\sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true)));
-
-    $mask = \random_bytes(4);
-    \fwrite($socket, "\x81" . \chr(0x80 | 5) . $mask . ('hello' ^ \str_repeat($mask, 2)));
-    $frame = \fread($socket, 2);
-    expect(\ord($frame[0]))->toBe(0x81)->and(\fread($socket, \ord($frame[1])))->toBe('echo: hello');
-    \fwrite($socket, "\x88" . \chr(0x80) . \random_bytes(4));
-    \fclose($socket);
-});
-
 test('SIGTERM during a slow request: the request completes, the log has no errors', function () {
     [$proc, $addr, $log] = app_start(1);
     $socket              = \stream_socket_client("tcp://$addr");

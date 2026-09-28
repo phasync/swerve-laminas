@@ -162,3 +162,85 @@ function json(array $response): array
 {
     return \json_decode($response['body'], true, flags: \JSON_THROW_ON_ERROR);
 }
+
+/**
+ * Open a WebSocket to $path, as a browser does, with the given extra header lines.
+ *
+ * @return resource
+ */
+function ws_connect(string $addr, string $path, array $headers = [])
+{
+    $socket = \stream_socket_client("tcp://$addr", $errno, $error, 5);
+    \stream_set_timeout($socket, 10);
+    $key = \base64_encode(\random_bytes(16));
+    \fwrite($socket, "GET $path HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\n" . \implode('', \array_map(fn ($line) => "$line\r\n", $headers)) . "\r\n");
+    $head = '';
+    while (!\str_contains($head, "\r\n\r\n") && '' !== ($byte = (string) \fread($socket, 1))) {
+        $head .= $byte;
+    }
+    if (!\str_starts_with($head, 'HTTP/1.1 101') || !\str_contains($head, 'Sec-WebSocket-Accept: ' . \base64_encode(\sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true)))) {
+        throw new RuntimeException("Not a WebSocket handshake:\n$head");
+    }
+
+    return $socket;
+}
+
+/** Send a frame, masked as a client must. */
+function ws_send($socket, int $opcode, string $payload, bool $fin = true): void
+{
+    $length = \strlen($payload);
+    $mask   = \random_bytes(4);
+    $head   = \chr(($fin ? 0x80 : 0) | $opcode) . match (true) {
+        $length < 126   => \chr(0x80 | $length),
+        $length < 65536 => \chr(0x80 | 126) . \pack('n', $length),
+        default         => \chr(0x80 | 127) . \pack('J', $length),
+    };
+    \fwrite($socket, $head . $mask . ($payload ^ \substr(\str_repeat($mask, \intdiv($length, 4) + 1), 0, $length)));
+}
+
+/** Read exactly $length bytes, or fewer when the connection ends. */
+function ws_bytes($socket, int $length): string
+{
+    $bytes = '';
+    while (\strlen($bytes) < $length && '' !== ($chunk = (string) \fread($socket, $length - \strlen($bytes)))) {
+        $bytes .= $chunk;
+    }
+
+    return $bytes;
+}
+
+/**
+ * The next frame from the server, or null when the connection ended.
+ *
+ * @return array{0: int, 1: string}|null opcode and payload
+ */
+function ws_read($socket): ?array
+{
+    $head = ws_bytes($socket, 2);
+    if (\strlen($head) < 2) {
+        return null;
+    }
+    $length = \ord($head[1]) & 0x7F;
+    if (126 === $length) {
+        $length = \unpack('n', ws_bytes($socket, 2))[1];
+    } elseif (127 === $length) {
+        $length = \unpack('J', ws_bytes($socket, 8))[1];
+    }
+
+    return [\ord($head[0]) & 0x0F, $length > 0 ? ws_bytes($socket, $length) : ''];
+}
+
+/** The WebSocket callbacks running, over the workers: $workers answers from different ones. */
+function live_callbacks(string $addr, int $workers): int
+{
+    $seen = [];
+    for ($i = 0; \count($seen) < $workers; ++$i) {
+        if ($i > 200) {
+            throw new RuntimeException('Not every worker answered');
+        }
+        $live               = json((new Browser($addr))->request('GET', '/test/live'));
+        $seen[$live['pid']] = $live['callbacks'];
+    }
+
+    return \array_sum($seen);
+}

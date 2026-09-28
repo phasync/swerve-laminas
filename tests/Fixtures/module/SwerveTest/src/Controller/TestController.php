@@ -17,6 +17,8 @@ use Laminas\View\Model\JsonModel;
 use Laminas\View\Model\ViewModel;
 use Psr\Http\Message\ServerRequestInterface;
 use Swerve\Http\WebSocket;
+use Swerve\Swerve;
+use SwerveTest\Live;
 use SwerveTest\RequestScoped;
 
 /** The routes the tests use, /test/<action>[/<value>], written as a Laminas application would. */
@@ -202,11 +204,80 @@ class TestController extends AbstractActionController
         return $response;
     }
 
+    /** Text and binary echo. */
     public function websocketAction()
     {
         return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
             foreach ($ws as $message) {
-                $ws->send("echo: $message");
+                $ws->isBinary() ? $ws->sendBinary($message) : $ws->send("echo: $message");
+            }
+        });
+    }
+
+    /**
+     * Server push: forwards the news topic, and nothing else. It says "ready <pid>" once
+     * subscribed, so that the tests publish when every client listens.
+     */
+    public function newsAction()
+    {
+        return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
+            ++Live::$callbacks;
+            try {
+                $news = Swerve::subscribe('news');
+                $ws->send('ready ' . \getmypid());
+                foreach ($news as $message) {
+                    $ws->send($message);
+                }
+            } finally {
+                --Live::$callbacks;
+            }
+        });
+    }
+
+    /** As newsAction(), with a closure bound to the controller, as a closure in a method is. */
+    public function newsBoundAction()
+    {
+        return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), function (WebSocket $ws) {
+            ++Live::$callbacks;
+            try {
+                $news = Swerve::subscribe('news');
+                $ws->send('ready ' . \getmypid());
+                foreach ($news as $message) {
+                    $ws->send($message);
+                }
+            } finally {
+                --Live::$callbacks;
+            }
+        });
+    }
+
+    /** An ordinary route that publishes to the news topic. */
+    public function publishAction()
+    {
+        Swerve::publish('news', (string) $this->params()->fromQuery('m'));
+
+        return new JsonModel(['published' => true]);
+    }
+
+    /** The WebSocket callbacks running in this worker. */
+    public function liveAction()
+    {
+        return new JsonModel(['callbacks' => Live::$callbacks, 'pid' => \getmypid()]);
+    }
+
+    /**
+     * The user, taken from the request before WebSocket::from(). "inside" reads it in the
+     * callback instead, which is wrong: the session belongs to whichever request the worker
+     * runs at that moment, or to none.
+     */
+    public function identityAction()
+    {
+        $user = $this->auth->getIdentity();
+        $auth = $this->auth;
+
+        return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) use ($user, $auth) {
+            foreach ($ws as $message) {
+                $ws->send(\json_encode('inside' === $message ? ['user' => $auth->getIdentity()] : ['user' => $user]));
             }
         });
     }
