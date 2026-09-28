@@ -1,6 +1,6 @@
 {
     "name": "phasync/swerve-laminas",
-    "description": "Run Laminas MVC applications on swerve: booted once per worker, WebSockets and Server-Sent Events, no rewrite.",
+    "description": "Run Laminas MVC applications on swerve: streamed responses, WebSockets and Server-Sent Events, no rewrite.",
     "type": "library",
     "license": "MIT",
     "keywords": ["laminas", "laminas-mvc", "zend-framework", "swerve", "phasync", "application server", "long-running", "psr-15", "websocket"],

@@ -216,11 +216,7 @@ test('SIGTERM during a slow request: the request completes, the log has no error
     \proc_terminate($proc, \SIGTERM);
     $response = \stream_get_contents($socket);
     expect($response)->toStartWith('HTTP/1.1 200')->toContain('{"slow":"done"}');
-    $deadline = \microtime(true) + 10;
-    while (\proc_get_status($proc)['running'] && \microtime(true) < $deadline) {
-        \usleep(50_000);
-    }
-    expect(\proc_close($proc))->toBe(0);
+    expect(app_wait($proc))->toBe(0);
     $contents = \file_get_contents($log);
     \unlink($log);
     expect($contents)->toContain('GET /test/slow 200')->not->toContain('error')->not->toContain('Warning');
