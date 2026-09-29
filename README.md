@@ -139,13 +139,15 @@ Events from a controller action.
   and response serves the skeleton's page with its title once more for every earlier request. A
   new application costs 1.2 ms, 0.7 ms of it the module manager configuring the ServiceManager
   and its plugin managers; the skeleton's home page takes 0.45 ms more.
-- **Concurrency:** one request at a time per worker (`phasync\Util\Synchronized`). Laminas reads
-  the request from the superglobals, which the handler fills from the PSR-7 request as PHP-FPM
-  would, and so do `RemoteAddress`, the `ServerUrl` helper and laminas-session; the session
-  itself lives in PHP's session module and `$_SESSION`. All of that is per process: tests show
-  each item leaking between overlapping requests without the lock
-  ([docs/concurrency.md](docs/concurrency.md)). A worker's other connections (static files,
-  keep-alive, WebSockets) go on while a request runs.
+- **Concurrency:** Laminas reads the request from the superglobals, which the handler fills from
+  the PSR-7 request as PHP-FPM would, and so do `RemoteAddress`, the `ServerUrl` helper and
+  laminas-session; sessions live in PHP's session module and `$_SESSION`. All of that is per
+  process. With phasync-ext 0.5.0-alpha11 or later, each request runs in `Virtual::run()`, with
+  superglobals of its own; `$_SESSION` stays one. With laminas-session registered, requests take
+  turns; without it, they overlap, and only requests that open a PHP session take turns
+  ([docs/concurrency.md](docs/concurrency.md) shows each item). Without phasync-ext, one request
+  at a time per worker. A worker's other connections (static files, keep-alive, WebSockets) go
+  on while a request runs.
 - **Sessions:** laminas-session with PHP's native sessions, as configured (`session_config`,
   `session_manager`, save handlers). After each request the handler writes and closes the
   session, sends the cookie and the `session.cache_limiter` headers that PHP-FPM sends, and makes
@@ -210,16 +212,18 @@ name, it returns the URL of another request in flight.
 ## Before you deploy
 
 - `exit` and `die()` end the worker, and the requests it is serving with it.
-- A request holds its worker until its action returns, as a PHP-FPM child does: size
-  `--workers` as you size `pm.max_children`. A WebSocket's callback and a streamed response's
-  body don't hold it.
+- With laminas-session, or without phasync-ext, a request holds its worker until its action
+  returns, as a PHP-FPM child does: size `--workers` as you size `pm.max_children`. A
+  WebSocket's callback and a streamed response's body don't hold it.
 - A WebSocket callback reads no session and no identity of its own: take them in the action,
   and make the callback `static` (see [WebSockets](#websockets)).
 - laminas-session's `SessionManager` registers a shutdown function in its constructor, which
   keeps every manager until the worker exits. An application that gets the `SessionManager`
   service on every request, as laminas-session's documentation does in `onBootstrap()`, grows by
-  about 3 KiB a request. Set `--max-requests` (50,000 is about 150 MiB), or a `memory_limit` so
-  that `--max-memory` recycles workers: the CLI's default `memory_limit` of -1 turns that off.
+  about 3 KiB a request ([#1](https://github.com/phasync/swerve-laminas/issues/1)); with
+  phasync-ext, where shutdown functions run when their request ends, it doesn't. Without it, set
+  `--max-requests` (50,000 is about 150 MiB), or a `memory_limit` so that `--max-memory`
+  recycles workers: the CLI's default `memory_limit` of -1 turns that off.
 - `$request->getFiles()` holds PSR-7 `UploadedFileInterface` objects: PHP's
   `is_uploaded_file()` and `move_uploaded_file()` don't know swerve's uploads, so Laminas' upload
   validator would reject the arrays PHP-FPM gives. laminas-form's file inputs and validators
