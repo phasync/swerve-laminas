@@ -17,6 +17,7 @@ use Laminas\Session\SessionManager;
 use Laminas\View\Model\JsonModel;
 use Laminas\View\Model\ViewModel;
 use Psr\Http\Message\ServerRequestInterface;
+use Swerve\Http\Virtual;
 use Swerve\Http\WebSocket;
 use Swerve\Swerve;
 use SwerveTest\Live;
@@ -364,7 +365,7 @@ class TestController extends AbstractActionController
     {
         \gc_collect_cycles();
 
-        return new JsonModel(['memory' => \memory_get_usage(), 'phasync-ext' => \extension_loaded('phasync')]);
+        return new JsonModel(['memory' => \memory_get_usage(), 'phasync-ext' => \extension_loaded('phasync'), 'virtual' => Virtual::available()]);
     }
 
     public function throwAction()

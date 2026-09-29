@@ -22,7 +22,7 @@ $c["minimum-stability"] = "alpha";
 $c["prefer-stable"] = true;
 file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 ' "$1"
-composer require -n --no-progress laminas/laminas-session laminas/laminas-mvc-plugin-flashmessenger laminas/laminas-mvc-form laminas/laminas-authentication laminas/laminas-diactoros phasync/swerve:^0.1.0-alpha15
+composer require -n --no-progress laminas/laminas-session laminas/laminas-mvc-plugin-flashmessenger laminas/laminas-mvc-form laminas/laminas-authentication laminas/laminas-diactoros phasync/swerve:^0.1.0-alpha18
 cp -r ../module/SwerveTest module/
 cp ../session.global.php config/autoload/
 # SWERVE_TEST_NO_SESSIONS: the application without laminas-session, with configuration caches of its own

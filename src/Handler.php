@@ -7,16 +7,19 @@ use Laminas\Http\Response\Stream as StreamResponse;
 use Laminas\Mvc\Application;
 use Laminas\Mvc\MvcEvent;
 use Laminas\Session\Config\ConfigInterface as SessionConfig;
+use Laminas\Session\ManagerInterface as SessionManager;
 use Laminas\Session\Storage\StorageInterface as SessionStorage;
 use Laminas\Stdlib\ArrayUtils;
 use Laminas\Stdlib\Parameters;
 use phasync\Psr\ComposableStream;
+use phasync\Util\Pool;
 use phasync\Util\Synchronized;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Swerve\Http\Message\Response;
+use Swerve\Http\Virtual;
 
 /**
  * A Laminas MVC application as swerve's request handler, from the project's swerve.php:
@@ -33,9 +36,15 @@ use Swerve\Http\Message\Response;
  * shared services (the layout view model, the head title and other placeholder helpers, the
  * route match) and has no mechanism to reset them, so an application is never reused.
  *
- * Concurrency: one request at a time per worker (phasync\Util\Synchronized). Laminas reads the
- * request from the superglobals, which this handler fills, and laminas-session keeps the session
- * in PHP's session module and $_SESSION; both are process-wide. See docs/concurrency.md.
+ * Concurrency (see docs/concurrency.md). Laminas reads the request from the superglobals, which
+ * this handler fills, and sessions live in PHP's session module and $_SESSION: all process-wide.
+ * With phasync-ext 0.5.0-alpha11 or later, each request runs in Swerve\Http\Virtual::run(), with
+ * superglobals, output buffers, shutdown functions and PHP session state of its own; $_SESSION
+ * stays one variable. When laminas-session is registered, which writes $_SESSION outside of any
+ * session (its SessionManager's shutdown function, its storage, SessionManager::start()), requests
+ * take turns (phasync\Util\Synchronized). Otherwise they overlap, and only a request that opens a
+ * PHP session takes $_SESSION, from the session's open() until the request ends. Without
+ * phasync-ext: one request at a time per worker.
  *
  * A controller action may return a PSR-7 response, such as Swerve\Http\WebSocket::from(); the
  * PSR-7 request is the Laminas request's metadata Psr\Http\Message\ServerRequestInterface. A
@@ -51,6 +60,33 @@ final class Handler implements RequestHandlerInterface
     private array $server;
 
     private ?\SessionHandlerInterface $nullSessionHandler = null;
+
+    /** The requests running in this worker */
+    private int $running = 0;
+
+    /** Each request runs in Virtual::run(), with superglobals, session and output of its own */
+    private readonly bool $virtual;
+
+    /** laminas-session is registered: it uses the worker's one $_SESSION, so requests take turns */
+    private readonly bool $laminasSession;
+
+    /**
+     * Without laminas-session: the worker's one $_SESSION, borrowed by a request that opens a PHP
+     * session until it ends.
+     *
+     * @var Pool<\stdClass>
+     */
+    private Pool $session;
+
+    /**
+     * The request holding $_SESSION: its phasync context, and what it borrowed.
+     *
+     * @var \WeakMap<object, \stdClass>
+     */
+    private \WeakMap $sessionHolder;
+
+    /** PHP's own save handler, which takes $_SESSION for the request when a session opens */
+    private \SessionHandler $sessionHandler;
 
     /**
      * @param string $root the application's root directory, where composer.json is
@@ -91,17 +127,83 @@ final class Handler implements RequestHandlerInterface
             $services->get(SessionConfig::class);
         }
         $this->endSession();
+
+        $this->virtual        = Virtual::available();
+        $this->laminasSession = $services->has(SessionManager::class);
+        if ($this->virtual && !$this->laminasSession) {
+            // A request that starts a PHP session gets $_SESSION, the worker's one, when the
+            // session opens, and keeps it until it ends
+            $this->session        = new Pool(static fn () => new \stdClass(), 1);
+            $this->sessionHolder  = new \WeakMap();
+            $this->sessionHandler = new class($this) extends \SessionHandler {
+                public function __construct(private readonly Handler $handler)
+                {
+                }
+
+                public function open(string $path, string $name): bool
+                {
+                    $this->handler->takeSession();
+
+                    return parent::open($path, $name);
+                }
+            };
+        }
     }
 
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
-        return Synchronized::run($this, fn () => $this->run($request));
+        if (!$this->virtual) {
+            return Synchronized::run($this, fn () => $this->run($request));
+        }
+        $run = function () use ($request): ResponseInterface {
+            // Swerve's form parser, not PHP's, as without phasync-ext: the body is read once
+            $request->getUploadedFiles();
+            $response = null;
+            try {
+                Virtual::run($request, function () use ($request, &$response) {
+                    if (!$this->laminasSession) {
+                        // Set in each request: one set outside Virtual::run() isn't there
+                        \session_set_save_handler($this->sessionHandler, false);
+                    }
+                    $response = $this->run($request);
+                });
+            } finally {
+                $this->giveSession();
+            }
+
+            return $response;
+        };
+
+        return $this->laminasSession ? Synchronized::run($this, $run) : $run();
+    }
+
+    /** @internal the session handler's open(): this request takes the worker's $_SESSION */
+    public function takeSession(): void
+    {
+        $this->sessionHolder[\phasync::getContext()] ??= $this->session->borrow();
+    }
+
+    /**
+     * After a request in Virtual::run(), with its shutdown functions: laminas-session's
+     * SessionManager::writeClose() among them, which writes to $_SESSION after the session closed.
+     * The next session starts with an empty $_SESSION, or laminas-session merges this one into it.
+     */
+    private function giveSession(): void
+    {
+        if ($this->laminasSession) {
+            $_SESSION = [];
+        } elseif (null !== ($token = $this->sessionHolder[$context = \phasync::getContext()] ?? null)) {
+            unset($this->sessionHolder[$context]);
+            $_SESSION = [];
+            $this->session->release($token);
+        }
     }
 
     private function run(ServerRequestInterface $request): ResponseInterface
     {
         $files = $request->getUploadedFiles();
         $this->fillSuperglobals($request, $files);
+        ++$this->running;
         try {
             $app    = Application::init($this->config);
             $events = $app->getEventManager();
@@ -139,9 +241,12 @@ final class Handler implements RequestHandlerInterface
             $_GET    = $_POST = $_COOKIE = $_FILES = $_REQUEST = [];
             $_SERVER = $this->server;
             // An application is a graph of cycles, 200 KiB and more, which phasync's cycle
-            // collector would let pile up for half a second. Collected now, it costs less.
+            // collector would let pile up for half a second. Collected now, it costs less; while
+            // other requests run, a collection would go through their applications too.
             unset($app, $events, $laminasRequest);
-            \gc_collect_cycles();
+            if (0 === --$this->running) {
+                \gc_collect_cycles();
+            }
         }
     }
 
@@ -282,6 +387,9 @@ final class Handler implements RequestHandlerInterface
                 $_SESSION = $_SESSION->toArray(true);
             }
             \session_write_close();
+        }
+        if ($this->virtual ?? false) {
+            return; // each request in Virtual::run() starts without a session, and PHP ends it
         }
         if ('' !== \session_id()) {
             $handler = \ini_get('session.save_handler');

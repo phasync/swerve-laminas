@@ -236,8 +236,13 @@ test('memory stays flat over 10,000 requests', function () {
     expect(growth(['SWERVE_TEST_DEFAULT_SESSION_MANAGER' => '1']))->toBeLessThan(10.0);
 });
 
-test('a laminas-session SessionManager per request stays in memory: 3 to 4 KiB a request', function () {
+test('a laminas-session SessionManager per request stays in memory: 3 to 4 KiB a request, none with Virtual::run()', function () {
     // SessionManager::__construct() registers its writeClose() as a shutdown function, which keeps
-    // the manager until the worker exits. Pinned here, and in the README.
-    expect(growth([]))->toBeGreaterThan(2_500.0)->toBeLessThan(4_500.0);
+    // the manager until the worker exits (swerve-laminas#1). Pinned here, and in the README. In
+    // Virtual::run(), a request's shutdown functions run when it ends, and let go of the manager.
+    if (json(browser()->request('GET', '/test/memory'))['virtual']) {
+        expect(growth([]))->toBeLessThan(10.0);
+    } else {
+        expect(growth([]))->toBeGreaterThan(2_500.0)->toBeLessThan(4_500.0);
+    }
 });
