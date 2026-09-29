@@ -142,8 +142,10 @@ Events from a controller action.
 - **Concurrency:** one request at a time per worker (`phasync\Util\Synchronized`). Laminas reads
   the request from the superglobals, which the handler fills from the PSR-7 request as PHP-FPM
   would, and so do `RemoteAddress`, the `ServerUrl` helper and laminas-session; the session
-  itself lives in PHP's session module. All of that is per process. A worker's other connections
-  (static files, keep-alive, WebSockets) go on while a request runs.
+  itself lives in PHP's session module and `$_SESSION`. All of that is per process: tests show
+  each item leaking between overlapping requests without the lock
+  ([docs/concurrency.md](docs/concurrency.md)). A worker's other connections (static files,
+  keep-alive, WebSockets) go on while a request runs.
 - **Sessions:** laminas-session with PHP's native sessions, as configured (`session_config`,
   `session_manager`, save handlers). After each request the handler writes and closes the
   session, sends the cookie and the `session.cache_limiter` headers that PHP-FPM sends, and makes

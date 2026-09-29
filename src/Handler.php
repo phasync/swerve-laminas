@@ -35,7 +35,7 @@ use Swerve\Http\Message\Response;
  *
  * Concurrency: one request at a time per worker (phasync\Util\Synchronized). Laminas reads the
  * request from the superglobals, which this handler fills, and laminas-session keeps the session
- * in PHP's session module; both are process-wide.
+ * in PHP's session module and $_SESSION; both are process-wide. See docs/concurrency.md.
  *
  * A controller action may return a PSR-7 response, such as Swerve\Http\WebSocket::from(); the
  * PSR-7 request is the Laminas request's metadata Psr\Http\Message\ServerRequestInterface. A
