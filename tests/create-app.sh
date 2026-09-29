@@ -25,6 +25,15 @@ file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNES
 composer require -n --no-progress laminas/laminas-session laminas/laminas-mvc-plugin-flashmessenger laminas/laminas-mvc-form laminas/laminas-authentication laminas/laminas-diactoros phasync/swerve:^0.1.0-alpha15
 cp -r ../module/SwerveTest module/
 cp ../session.global.php config/autoload/
+# SWERVE_TEST_NO_SESSIONS: the application without laminas-session, with configuration caches of its own
+php -r '
+$f = "config/application.config.php";
+$c = file_get_contents($f);
+$c = preg_replace("/^return \\[/m", "\$noSessions = (bool) getenv(\"SWERVE_TEST_NO_SESSIONS\");\n\nreturn [", $c, 1);
+$c = str_replace("require __DIR__ . \x27/modules.config.php\x27", "\\array_values(\\array_diff(require __DIR__ . \x27/modules.config.php\x27, \$noSessions ? [\x27Laminas\\\\Session\x27] : []))", $c);
+$c = preg_replace("/\x27(application\\.(config|module)\\.cache)\x27/", "(\$noSessions ? \x27$1-no-sessions\x27 : \x27$1\x27)", $c);
+file_put_contents($f, $c);
+'
 sed -i "s/'Application',/'Application',\n    'SwerveTest',/" config/modules.config.php
 cat > swerve.php <<'PHP'
 <?php

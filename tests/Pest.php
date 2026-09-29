@@ -12,9 +12,11 @@ const APP = __DIR__ . '/Fixtures/app';
 /**
  * Start swerve on a free port with the fixture application and wait until it answers.
  *
+ * @param string $script the swerve script, from the application's directory
+ *
  * @return array{0: resource, 1: string, 2: string} the process, its address, its log file
  */
-function app_start(int $workers = 2, array $env = []): array
+function app_start(int $workers = 2, array $env = [], string $script = 'swerve.php'): array
 {
     [$from, $to] = \array_map('intval', \explode('-', \getenv('SWERVE_TEST_PORTS') ?: '19010-19049'));
     // A port in use and swerve not answering yet warn
@@ -28,7 +30,7 @@ function app_start(int $workers = 2, array $env = []): array
     $addr     = "127.0.0.1:$port";
     $log      = \tempnam(\sys_get_temp_dir(), 'swerve-laminas-log');
     $php      = \trim((string) \getenv('SWERVE_PHP_ARGS'));
-    $cmd      = 'exec ' . \PHP_BINARY . " $php " . \escapeshellarg(APP . '/vendor/bin/swerve') . " --workers=$workers --grace=5 --http=$addr --log=" . \escapeshellarg($log) . ' ' . \escapeshellarg(APP . '/swerve.php');
+    $cmd      = 'exec ' . \PHP_BINARY . " $php " . \escapeshellarg(APP . '/vendor/bin/swerve') . " --workers=$workers --grace=5 --http=$addr --log=" . \escapeshellarg($log) . ' ' . \escapeshellarg($script);
     $proc     = \proc_open($cmd, [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, APP, $env + \getenv());
     $deadline = \microtime(true) + 20;
     while (false === \file_get_contents("http://$addr/test/json", false, \stream_context_create(['http' => ['ignore_errors' => true, 'timeout' => 1]]))) {
@@ -65,9 +67,9 @@ function app_wait($proc): int
 }
 
 /** Run $test against a swerve serving the fixture application, then stop it; returns its log. */
-function with_app(Closure $test, int $workers = 2, array $env = []): string
+function with_app(Closure $test, int $workers = 2, array $env = [], string $script = 'swerve.php'): string
 {
-    [$proc, $addr, $log] = app_start($workers, $env);
+    [$proc, $addr, $log] = app_start($workers, $env, $script);
     try {
         $test($addr);
     } finally {
@@ -89,7 +91,7 @@ final class Browser
     {
     }
 
-    /** @return array{status: int, headers: array<string, list<string>>, body: string} */
+    /** @return array{status: int, headers: array<string, list<string>>, body: string, time: float} */
     public function request(string $method, string $path, array $headers = [], string|array|null $body = null): array
     {
         $curl = $this->handle($method, $path, $headers, $body);
@@ -102,7 +104,7 @@ final class Browser
      *
      * @param list<array{0: string, 1: string, 2?: array, 3?: string|array|null}> $requests method, path, headers, body
      *
-     * @return list<array{status: int, headers: array<string, list<string>>, body: string}>
+     * @return list<array{status: int, headers: array<string, list<string>>, body: string, time: float}>
      */
     public function concurrently(array $requests): array
     {
@@ -153,7 +155,7 @@ final class Browser
             $this->cookies[$name] = $value;
         }
 
-        return ['status' => \curl_getinfo($curl, \CURLINFO_RESPONSE_CODE), 'headers' => $headers, 'body' => \substr($raw, $size)];
+        return ['status' => \curl_getinfo($curl, \CURLINFO_RESPONSE_CODE), 'headers' => $headers, 'body' => \substr($raw, $size), 'time' => \curl_getinfo($curl, \CURLINFO_TOTAL_TIME)];
     }
 }
 

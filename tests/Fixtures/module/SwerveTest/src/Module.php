@@ -14,11 +14,12 @@ class Module
 
     /**
      * As laminas-session's documentation does: the configured manager becomes the containers'
-     * default. SWERVE_TEST_DEFAULT_SESSION_MANAGER leaves laminas-session's own default instead.
+     * default. SWERVE_TEST_DEFAULT_SESSION_MANAGER leaves laminas-session's own default instead;
+     * SWERVE_TEST_NO_SESSIONS runs the application without laminas-session.
      */
     public function onBootstrap(MvcEvent $e): void
     {
-        if (!\getenv('SWERVE_TEST_DEFAULT_SESSION_MANAGER')) {
+        if (!\getenv('SWERVE_TEST_DEFAULT_SESSION_MANAGER') && !\getenv('SWERVE_TEST_NO_SESSIONS')) {
             $e->getApplication()->getServiceManager()->get(SessionManager::class);
         }
     }

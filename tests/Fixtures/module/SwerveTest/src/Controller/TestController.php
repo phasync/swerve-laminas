@@ -13,6 +13,7 @@ use Laminas\Http\Response\Stream;
 use Laminas\InputFilter\FileInput;
 use Laminas\Mvc\Controller\AbstractActionController;
 use Laminas\Session\Container;
+use Laminas\Session\SessionManager;
 use Laminas\View\Model\JsonModel;
 use Laminas\View\Model\ViewModel;
 use Psr\Http\Message\ServerRequestInterface;
@@ -121,6 +122,67 @@ class TestController extends AbstractActionController
             'identity' => $this->auth->getIdentity(),
             'service'  => $this->scoped->value,
         ]);
+    }
+
+    /**
+     * For the interleaving tests: put the route's value in each place a request's state can
+     * live, wait ?ms= (default 50) so that other requests run, and read each back. The
+     * superglobals are read both before and after the wait; the session parts need laminas-session.
+     */
+    public function interleaveAction()
+    {
+        $value    = (string) $this->params()->fromRoute('value');
+        $services = $this->getEvent()->getApplication()->getServiceManager();
+        $helpers  = $services->get('ViewHelperManager');
+        $globals  = static fn () => [
+            'get'    => $_GET['v'] ?? null,
+            'post'   => $_POST['v'] ?? null,
+            'cookie' => $_COOKIE['c'] ?? null,
+            'server' => $_SERVER['HTTP_X_VALUE'] ?? null,
+        ];
+        $before  = $globals();
+        $session = $services->has(SessionManager::class) ? new Container('interleave') : null;
+        if ($session) {
+            $session->value = $value;
+            $sessionId      = \session_id();
+        }
+        $helpers->get('headTitle')($value);
+        $this->layout()->setVariable('value', $value);
+        $doctype = $this->params()->fromQuery('doctype');
+        if ($doctype) {
+            $helpers->get('doctype')($doctype);
+        }
+        \Locale::setDefault((string) $this->params()->fromQuery('locale', 'en_US'));
+
+        self::wait((int) $this->params()->fromQuery('ms', 50) / 1000);
+
+        return new JsonModel([
+            'before'     => $before,
+            'after'      => $globals(),
+            'request'    => $this->params()->fromQuery('v'),
+            'head-title' => \strip_tags($helpers->get('headTitle')->renderTitle()),
+            'layout'     => $this->layout()->getVariable('value'),
+            'server-url' => $helpers->get('serverUrl')(),
+            'doctype'    => $helpers->get('doctype')->getDoctype(),
+            'locale'     => \Locale::getDefault(),
+        ] + ($session ? [
+            'session'         => $session->value,
+            'native-session'  => $_SESSION['interleave']['value'] ?? null,
+            'same-session-id' => \session_id() === $sessionId,
+            'late-container'  => (new Container('interleave'))->value,
+            'default-manager' => Container::getDefaultManager() === $services->get(SessionManager::class),
+        ] : []));
+    }
+
+    /** PHP's own session, without laminas-session: the value in $_SESSION, a wait, and back. */
+    public function nativeSessionAction()
+    {
+        \session_start();
+        $_SESSION['value'] = $this->params()->fromRoute('value');
+        $id                = \session_id();
+        self::wait((int) $this->params()->fromQuery('ms', 50) / 1000);
+
+        return new JsonModel(['session' => $_SESSION['value'], 'same-session-id' => \session_id() === $id]);
     }
 
     /** What the visitor's session holds. */
