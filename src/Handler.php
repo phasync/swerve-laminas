@@ -11,12 +11,12 @@ use Laminas\Session\Storage\StorageInterface as SessionStorage;
 use Laminas\Stdlib\ArrayUtils;
 use Laminas\Stdlib\Parameters;
 use phasync\Psr\ComposableStream;
+use phasync\Psr\Response;
 use phasync\Util\Synchronized;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Swerve\Http\Message\Response;
 
 /**
  * A Laminas MVC application as swerve's request handler, from the project's swerve.php:
@@ -226,7 +226,7 @@ final class Handler implements RequestHandlerInterface
             $body = $response->getContent();
         }
 
-        return new Response($body, $headers, $response->getStatusCode(), $response->getReasonPhrase());
+        return new Response($response->getStatusCode(), $headers, $body, $response->getVersion(), $response->getReasonPhrase());
     }
 
     /**
