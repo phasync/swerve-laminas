@@ -14,8 +14,8 @@
         "php": "^8.2",
         "ext-session": "*",
         "laminas/laminas-mvc": "^3.8",
-        "phasync/phasync": "^2.0.0-alpha25",
-        "phasync/swerve": "^0.1.0-alpha25",
+        "phasync/phasync": "^2.0.0-beta4",
+        "phasync/swerve": "^0.1.0-beta1",
         "psr/http-server-handler": "^1.0"
     },
     "require-dev": {
@@ -30,7 +30,7 @@
             "Swerve\\Laminas\\": "src/"
         }
     },
-    "minimum-stability": "alpha",
+    "minimum-stability": "beta",
     "prefer-stable": true,
     "scripts": {
         "test": "@php vendor/bin/pest --stop-on-defect",
