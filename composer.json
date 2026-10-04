@@ -14,16 +14,13 @@
         "php": "^8.2",
         "ext-session": "*",
         "laminas/laminas-mvc": "^3.8",
-        "phasync/phasync": "^2.0.0-beta6",
-        "phasync/swerve": "^0.1.0-beta4",
+        "phasync/phasync": "^2.0.0-beta7",
+        "phasync/swerve": "^0.1.0-beta5",
         "psr/http-server-handler": "^1.0"
     },
     "require-dev": {
         "pestphp/pest": "^3.0 || ^4.0",
         "friendsofphp/php-cs-fixer": "^3.58"
-    },
-    "suggest": {
-        "phasync/phasync-ext": "Laminas MVC's database and HTTP calls wait cooperatively under it, so a slow query in one request no longer stalls every other request the worker is holding; works fully without it."
     },
     "autoload": {
         "psr-4": {
