@@ -14,8 +14,8 @@
         "php": "^8.2",
         "ext-session": "*",
         "laminas/laminas-mvc": "^3.8",
-        "phasync/phasync": "^2.0.0-beta4",
-        "phasync/swerve": "^0.1.0-beta1",
+        "phasync/phasync": "^2.0.0-beta5",
+        "phasync/swerve": "^0.1.0-beta2",
         "psr/http-server-handler": "^1.0"
     },
     "require-dev": {
