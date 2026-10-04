@@ -15,7 +15,7 @@
         "ext-session": "*",
         "laminas/laminas-mvc": "^3.8",
         "phasync/phasync": "^2.0.0-beta6",
-        "phasync/swerve": "^0.1.0-beta3",
+        "phasync/swerve": "^0.1.0-beta4",
         "psr/http-server-handler": "^1.0"
     },
     "require-dev": {
