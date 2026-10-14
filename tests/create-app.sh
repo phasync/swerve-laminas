@@ -18,11 +18,13 @@ $c["autoload"]["psr-4"]["SwerveTest\\"] = "module/SwerveTest/src/";
 // This package from the checkout, by its autoload rule: a path repository would link the
 // checkout, which holds this application, into the application
 $c["autoload"]["psr-4"]["Swerve\\Laminas\\"] = "../../../src/";
-$c["minimum-stability"] = "alpha";
+$c["minimum-stability"] = "dev";
 $c["prefer-stable"] = true;
 file_put_contents("composer.json", json_encode($c, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
 ' "$1"
-composer require -n --no-progress laminas/laminas-session laminas/laminas-mvc-plugin-flashmessenger laminas/laminas-mvc-form laminas/laminas-authentication laminas/laminas-diactoros phasync/swerve:^0.1.0-alpha15
+# The adapter's own requirements: swerve dev-main (aliased, for swerve-psr15's requirement of a release) and swerve-psr15
+composer config repositories.swerve-psr15 vcs https://github.com/phasync/swerve-psr15
+composer require -n --no-progress --with-all-dependencies laminas/laminas-session laminas/laminas-mvc-plugin-flashmessenger laminas/laminas-mvc-form laminas/laminas-authentication laminas/laminas-diactoros 'phasync/swerve:dev-main as 0.1.0-beta7' phasync/swerve-psr15:dev-main
 cp -r ../module/SwerveTest module/
 cp ../session.global.php config/autoload/
 # SWERVE_TEST_NO_SESSIONS: the application without laminas-session, with configuration caches of its own
@@ -40,6 +42,6 @@ cat > swerve.php <<'PHP'
 
 require __DIR__ . '/vendor/autoload.php';
 
-return new Swerve\Laminas\Handler(__DIR__);
+return Swerve\Psr15\Bridge::wrap(new Swerve\Laminas\Handler(__DIR__));
 PHP
 composer dump-autoload -n

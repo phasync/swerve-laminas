@@ -11,38 +11,36 @@ response bodies, and hold WebSockets and Server-Sent Events. This package lets i
 MVC application (the successor of Zend Framework MVC, `laminas/laminas-mvc-skeleton`) unchanged.
 
 ```bash
-composer config minimum-stability beta   # while swerve is in beta
-composer config prefer-stable true         # everything else stays stable
-composer require phasync/swerve-laminas
-```
-
-```php
-<?php // swerve.php, next to composer.json
-
-require __DIR__ . '/vendor/autoload.php';
-
-return new Swerve\Laminas\Handler(__DIR__);
+composer config minimum-stability dev    # phasync and swerve are on their development versions
+composer config prefer-stable true        # everything else stays stable
+composer config repositories.swerve-psr15 vcs https://github.com/phasync/swerve-psr15
+composer require 'phasync/swerve:dev-main as 0.1.0-beta7' phasync/swerve-laminas
 ```
 
 ```bash
-vendor/bin/swerve --http=0.0.0.0:8080 --public=public swerve.php
+vendor/bin/swerve --adapter=laminas --http=0.0.0.0:8080 --public=public
 ```
 
-That's the whole setup. `public/index.php` stays as it is, so the same application still runs
-under PHP-FPM.
+That's the whole setup. `--adapter=laminas` picks this adapter over swerve-psr15's, which comes
+with it (or put `"extra": {"swerve": {"adapter": "laminas"}}` in your `composer.json`).
+`public/index.php` stays as it is, so the same application still runs under PHP-FPM. The handler
+is a PSR-15 request handler, served by [swerve-psr15](https://github.com/phasync/swerve-psr15)'s
+`Bridge`; a `swerve.php` run with `--adapter=swerve` may return
+`Swerve\Psr15\Bridge::wrap(new Swerve\Laminas\Handler(__DIR__))`.
 
 ## WebSockets
 
-A controller action returns `Swerve\Http\WebSocket::from()`, with the PSR-7 request that the
-handler puts in the Laminas request's metadata:
+A controller action returns swerve-psr15's `WebSocketResponse::from()`, with the PSR-7 request
+that the handler puts in the Laminas request's metadata; the callback gets swerve's `WebSocket`:
 
 ```php
 use Psr\Http\Message\ServerRequestInterface;
-use Swerve\Http\WebSocket;
+use Swerve\Psr15\WebSocketResponse;
+use Swerve\WebSocket;
 
 public function chatAction()
 {
-    return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
+    return WebSocketResponse::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
         foreach ($ws as $message) {            // ends when the client leaves
             $ws->isBinary() ? $ws->sendBinary($message) : $ws->send("echo: $message");
         }
@@ -61,7 +59,7 @@ use Swerve\Swerve;
 
 public function newsAction()
 {
-    return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
+    return WebSocketResponse::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
         foreach (Swerve::subscribe('news') as $message) {
             $ws->send($message);
         }
@@ -79,14 +77,14 @@ public function publishAction()
 The callback ends when its client leaves, with a close frame or without a word, and when the
 worker drains: clients then get a close frame with 1001.
 
-**The user.** Take what the callback needs from the request before `WebSocket::from()`:
+**The user.** Take what the callback needs from the request before `WebSocketResponse::from()`:
 
 ```php
 public function notificationsAction()
 {
     $user = $this->auth->getIdentity();        // laminas-authentication, from the session
 
-    return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) use ($user) {
+    return WebSocketResponse::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) use ($user) {
         foreach (Swerve::subscribe("user:$user") as $message) {
             $ws->send($message);
         }
@@ -159,11 +157,12 @@ Events from a controller action.
 
 ## Mezzio
 
-[Mezzio](https://docs.mezzio.dev/), Laminas' PSR-15 framework, needs no adapter: its
-`Application` is a request handler, so `swerve.php` returns it.
+[Mezzio](https://docs.mezzio.dev/), Laminas' PSR-15 framework, needs no adapter of its own: its
+`Application` is a request handler, so [swerve-psr15](https://github.com/phasync/swerve-psr15)
+serves it from `swerve.psr15.php` (`vendor/bin/swerve --adapter=psr15`).
 
 ```php
-<?php // swerve.php, as public/index.php
+<?php // swerve.psr15.php, as public/index.php
 
 chdir(__DIR__);
 require 'vendor/autoload.php';
@@ -178,15 +177,16 @@ return $app;
 ```
 
 A WebSocket is a handler's response, and the user or session data come from the request's
-attributes before `WebSocket::from()`:
+attributes before `WebSocketResponse::from()`:
 
 ```php
 use Mezzio\Authentication\UserInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use Swerve\Http\WebSocket;
+use Swerve\Psr15\WebSocketResponse;
 use Swerve\Swerve;
+use Swerve\WebSocket;
 
 final class NewsHandler implements RequestHandlerInterface
 {
@@ -194,7 +194,7 @@ final class NewsHandler implements RequestHandlerInterface
     {
         $user = $request->getAttribute(UserInterface::class)?->getIdentity();
 
-        return WebSocket::from($request, static function (WebSocket $ws) use ($user) {
+        return WebSocketResponse::from($request, static function (WebSocket $ws) use ($user) {
             foreach (Swerve::subscribe('news') as $message) {
                 $ws->send($message);
             }
@@ -210,6 +210,9 @@ name, it returns the URL of another request in flight.
 ## Before you deploy
 
 - `exit` and `die()` end the worker, and the requests it is serving with it.
+- **A stop ends the requests in flight.** On a shutdown or reload swerve stops a worker at once:
+  a request still waiting then ends, answered `503` by swerve when nothing was sent yet (no error
+  page); clients retry.
 - A request holds its worker until its action returns, as a PHP-FPM child does: size
   `--workers` as you size `pm.max_children`. A WebSocket's callback and a streamed response's
   body don't hold it.
@@ -218,7 +221,7 @@ name, it returns the URL of another request in flight.
 - laminas-session's `SessionManager` registers a shutdown function in its constructor, which
   keeps every manager until the worker exits. An application that gets the `SessionManager`
   service on every request, as laminas-session's documentation does in `onBootstrap()`, grows by
-  about 3 KiB a request. Set `--max-requests` (50,000 is about 150 MiB), or a `memory_limit` so
+  2 to 3 KiB a request. Set `--max-requests` (50,000 is up to 150 MiB), or a `memory_limit` so
   that `--max-memory` recycles workers: the CLI's default `memory_limit` of -1 turns that off.
 - `$request->getFiles()` holds PSR-7 `UploadedFileInterface` objects: PHP's
   `is_uploaded_file()` and `move_uploaded_file()` don't know swerve's uploads, so Laminas' upload

@@ -14,14 +14,15 @@ layout never leak there. Framework paths below are under `vendor/laminas/`.
 
 ## Why requests take turns
 
-**The superglobals.** Laminas reads the request from `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES` and
-`$_SERVER`, which the handler fills (`src/Handler.php:154`) and empties after the request
-(`:139`). The Request object copies them when the application is built
+**`$_SERVER`.** Laminas reads the request from `$_GET`, `$_POST`, `$_COOKIE`, `$_FILES` and
+`$_SERVER`, which the handler fills and empties after the request. phasync keeps the first four
+per request (swapped by the request's `Scope`), but `$_SERVER` is the process's. The Request
+object copies them when the application is built
 (`laminas-http/src/PhpEnvironment/Request.php:86-95`), but the `ServerUrl` helper
 (`laminas-view/src/Helper/ServerUrl.php:90`), `RemoteAddress`
 (`laminas-http/src/PhpEnvironment/RemoteAddress.php:106`), laminas-session's validators and
-application code read them later. Without the lock a request reads the last request's values,
-or nothing once another ended: test "unlocked, with laminas-session", without and with
+application code read `$_SERVER` later. Without the lock a request reads the last request's
+values, or nothing once another ended: test "unlocked, with laminas-session", without and with
 phasync-ext.
 
 **PHP's session and `$_SESSION`.** laminas-session keeps the session in PHP's session module, one

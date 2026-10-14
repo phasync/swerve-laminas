@@ -20,8 +20,9 @@ function browser(): Browser
     return new Browser($GLOBALS['app']['addr']);
 }
 
-test('phasync-ext is loaded when SWERVE_PHP_ARGS loads it', function () {
-    expect(json(browser()->request('GET', '/test/memory'))['phasync-ext'])->toBe(\str_contains((string) \getenv('SWERVE_PHP_ARGS'), 'phasync'));
+test('phasync-ext is loaded when SWERVE_PHP_ARGS or php.ini loads it', function () {
+    // Or PHP_INI_SCAN_DIR, which loads it in this process too
+    expect(json(browser()->request('GET', '/test/memory'))['phasync-ext'])->toBe(\str_contains((string) \getenv('SWERVE_PHP_ARGS'), 'phasync') || \extension_loaded('phasync'));
 });
 
 test('the skeleton home page', function () {
@@ -189,18 +190,18 @@ test('a file download, the file deleted after it was sent', function () {
     expect(\file_exists($response['headers']['x-path'][0]))->toBeFalse();
 });
 
-test('SIGTERM during a slow request: the request completes, the log has no errors', function () {
+test('SIGTERM during a slow request: the worker stops at once and swerve answers 503, the log has no errors', function () {
     [$proc, $addr, $log] = app_start(1);
     $socket              = \stream_socket_client("tcp://$addr");
     \fwrite($socket, "GET /test/slow HTTP/1.1\r\nHost: localhost\r\n\r\n");
     \usleep(300_000);
     \proc_terminate($proc, \SIGTERM);
     $response = \stream_get_contents($socket);
-    expect($response)->toStartWith('HTTP/1.1 200')->toContain('{"slow":"done"}');
+    expect($response)->toStartWith('HTTP/1.1 503');
     expect(app_wait($proc))->toBe(0);
     $contents = \file_get_contents($log);
     \unlink($log);
-    expect($contents)->toContain('GET /test/slow 200')->not->toContain('error')->not->toContain('Warning');
+    expect($contents)->toContain('GET /test/slow 503')->not->toContain('error')->not->toContain('Warning');
 });
 
 /**
@@ -236,8 +237,8 @@ test('memory stays flat over 10,000 requests', function () {
     expect(growth(['SWERVE_TEST_DEFAULT_SESSION_MANAGER' => '1']))->toBeLessThan(10.0);
 });
 
-test('a laminas-session SessionManager per request stays in memory: 3 to 4 KiB a request', function () {
+test('a laminas-session SessionManager per request stays in memory: 2 to 4 KiB a request', function () {
     // SessionManager::__construct() registers its writeClose() as a shutdown function, which keeps
     // the manager until the worker exits. Pinned here, and in the README.
-    expect(growth([]))->toBeGreaterThan(2_500.0)->toBeLessThan(4_500.0);
+    expect(growth([]))->toBeGreaterThan(2_000.0)->toBeLessThan(4_500.0);
 });

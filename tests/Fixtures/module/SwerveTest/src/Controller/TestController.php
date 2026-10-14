@@ -17,8 +17,9 @@ use Laminas\Session\SessionManager;
 use Laminas\View\Model\JsonModel;
 use Laminas\View\Model\ViewModel;
 use Psr\Http\Message\ServerRequestInterface;
-use Swerve\Http\WebSocket;
+use Swerve\Psr15\WebSocketResponse;
 use Swerve\Swerve;
+use Swerve\WebSocket;
 use SwerveTest\Live;
 use SwerveTest\RequestScoped;
 
@@ -278,7 +279,7 @@ class TestController extends AbstractActionController
     /** Text and binary echo. */
     public function websocketAction()
     {
-        return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
+        return WebSocketResponse::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
             foreach ($ws as $message) {
                 $ws->isBinary() ? $ws->sendBinary($message) : $ws->send("echo: $message");
             }
@@ -291,7 +292,7 @@ class TestController extends AbstractActionController
      */
     public function newsAction()
     {
-        return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
+        return WebSocketResponse::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) {
             ++Live::$callbacks;
             try {
                 $news = Swerve::subscribe('news');
@@ -308,7 +309,7 @@ class TestController extends AbstractActionController
     /** As newsAction(), with a closure bound to the controller, as a closure in a method is. */
     public function newsBoundAction()
     {
-        return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), function (WebSocket $ws) {
+        return WebSocketResponse::from($this->getRequest()->getMetadata(ServerRequestInterface::class), function (WebSocket $ws) {
             ++Live::$callbacks;
             try {
                 $news = Swerve::subscribe('news');
@@ -337,7 +338,7 @@ class TestController extends AbstractActionController
     }
 
     /**
-     * The user, taken from the request before WebSocket::from(). "inside" reads it in the
+     * The user, taken from the request before WebSocketResponse::from(). "inside" reads it in the
      * callback instead, which is wrong: the session belongs to whichever request the worker
      * runs at that moment, or to none.
      */
@@ -346,7 +347,7 @@ class TestController extends AbstractActionController
         $user = $this->auth->getIdentity();
         $auth = $this->auth;
 
-        return WebSocket::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) use ($user, $auth) {
+        return WebSocketResponse::from($this->getRequest()->getMetadata(ServerRequestInterface::class), static function (WebSocket $ws) use ($user, $auth) {
             foreach ($ws as $message) {
                 $ws->send(\json_encode('inside' === $message ? ['user' => $auth->getIdentity()] : ['user' => $user]));
             }

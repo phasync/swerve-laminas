@@ -13,7 +13,7 @@ use Swerve\Laminas\Handler;
 
 require __DIR__ . '/app/vendor/autoload.php';
 
-return new class([new Handler(__DIR__ . '/app'), new Handler(__DIR__ . '/app'), new Handler(__DIR__ . '/app'), new Handler(__DIR__ . '/app')]) implements RequestHandlerInterface {
+return Swerve\Psr15\Bridge::wrap(new class([new Handler(__DIR__ . '/app'), new Handler(__DIR__ . '/app'), new Handler(__DIR__ . '/app'), new Handler(__DIR__ . '/app')]) implements RequestHandlerInterface {
     private int $next = 0;
 
     /** @param list<Handler> $handlers */
@@ -25,4 +25,4 @@ return new class([new Handler(__DIR__ . '/app'), new Handler(__DIR__ . '/app'), 
     {
         return $this->handlers[$this->next++ % \count($this->handlers)]->handle($request);
     }
-};
+});

@@ -12,7 +12,9 @@
 
 const WAIT = 0.2;
 
-const SUPERGLOBALS = ['after.cookie', 'after.get', 'after.post', 'after.server'];
+// $_GET, $_POST, $_COOKIE and $_FILES are each request's own (phasync swaps them by the request's
+// Scope); $_SERVER is the process's
+const SUPERGLOBALS = ['after.server'];
 
 /**
  * Four overlapping requests to /test/interleave, each with its own query, form body, cookie,
@@ -97,7 +99,7 @@ test('unlocked, with laminas-session: the superglobals, the session and statics 
     with_app(function (string $addr) {
         [$leaks] = interleave($addr);
         // Laminas' Request, route match and view state belong to the application, new per request
-        expect($leaks)->not->toContain('before.get', 'request', 'head-title', 'layout');
+        expect($leaks)->not->toContain('before.get', 'request', 'head-title', 'layout', 'after.get', 'after.post', 'after.cookie');
         // The superglobals and what reads them later (the ServerUrl helper), PHP's session and
         // $_SESSION, laminas-session's default manager, the doctype and the locale are the worker's
         expect($leaks)->toContain(...SUPERGLOBALS, ...['server-url', 'session', 'native-session', 'late-container', 'default-manager', 'doctype', 'locale']);

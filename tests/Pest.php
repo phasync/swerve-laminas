@@ -30,7 +30,7 @@ function app_start(int $workers = 2, array $env = [], string $script = 'swerve.p
     $addr     = "127.0.0.1:$port";
     $log      = \tempnam(\sys_get_temp_dir(), 'swerve-laminas-log');
     $php      = \trim((string) \getenv('SWERVE_PHP_ARGS'));
-    $cmd      = 'exec ' . \PHP_BINARY . " $php " . \escapeshellarg(APP . '/vendor/bin/swerve') . " --workers=$workers --grace=5 --http=$addr --log=" . \escapeshellarg($log) . ' ' . \escapeshellarg($script);
+    $cmd      = 'exec ' . \PHP_BINARY . " $php " . \escapeshellarg(APP . '/vendor/bin/swerve') . " --adapter=swerve --workers=$workers --grace=5 --http=$addr --log=" . \escapeshellarg($log) . ' ' . \escapeshellarg($script);
     $proc     = \proc_open($cmd, [['file', '/dev/null', 'r'], ['file', '/dev/null', 'w'], ['file', '/dev/null', 'w']], $pipes, APP, $env + \getenv());
     $deadline = \microtime(true) + 20;
     while (false === \file_get_contents("http://$addr/test/json", false, \stream_context_create(['http' => ['ignore_errors' => true, 'timeout' => 1]]))) {
@@ -180,7 +180,8 @@ function ws_connect(string $addr, string $path, array $headers = [])
     while (!\str_contains($head, "\r\n\r\n") && '' !== ($byte = (string) \fread($socket, 1))) {
         $head .= $byte;
     }
-    if (!\str_starts_with($head, 'HTTP/1.1 101') || !\str_contains($head, 'Sec-WebSocket-Accept: ' . \base64_encode(\sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true)))) {
+    // Header names are case-insensitive
+    if (!\str_starts_with($head, 'HTTP/1.1 101') || !\str_contains(\strtolower($head), "\r\nsec-websocket-accept: " . \strtolower(\base64_encode(\sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true))))) {
         throw new RuntimeException("Not a WebSocket handshake:\n$head");
     }
 

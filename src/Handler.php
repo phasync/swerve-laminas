@@ -17,11 +17,14 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\UploadedFileInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Swerve\WorkerStoppingException;
 
 /**
- * A Laminas MVC application as swerve's request handler, from the project's swerve.php:
+ * A Laminas MVC application as a PSR-15 request handler, which the `laminas` adapter's entry
+ * ({@see entry()}) serves through swerve-psr15's Bridge; a swerve.php run with `--adapter=swerve`
+ * may do the same:
  *
- *     return new Swerve\Laminas\Handler(__DIR__);
+ *     return Swerve\Psr15\Bridge::wrap(new Swerve\Laminas\Handler(__DIR__));
  *
  * Once per worker: the application configuration is read as config/container.php reads it
  * (config/application.config.php, merged with config/development.config.php in development
@@ -37,8 +40,8 @@ use Psr\Http\Server\RequestHandlerInterface;
  * request from the superglobals, which this handler fills, and laminas-session keeps the session
  * in PHP's session module and $_SESSION; both are process-wide. See docs/concurrency.md.
  *
- * A controller action may return a PSR-7 response, such as Swerve\Http\WebSocket::from(); the
- * PSR-7 request is the Laminas request's metadata Psr\Http\Message\ServerRequestInterface. A
+ * A controller action may return a PSR-7 response, such as Swerve\Psr15\WebSocketResponse::from();
+ * the PSR-7 request is the Laminas request's metadata Psr\Http\Message\ServerRequestInterface. A
  * WebSocket's callback runs after the action returned, without the worker's turn and after the
  * session was closed: the action takes the user and session data the callback needs.
  */
@@ -58,6 +61,8 @@ final class Handler implements RequestHandlerInterface
     public function __construct(string $root)
     {
         $root = \rtrim($root, '/');
+        // The application's autoloader (the vendor directory swerve runs from): swerve's worker loads only its own dependencies
+        require_once $GLOBALS['_composer_autoload_path'] ?? "$root/vendor/autoload.php";
         // As public/index.php does: the configuration's paths are relative to the root
         \chdir($root);
         $this->config = require "$root/config/application.config.php";
@@ -109,6 +114,13 @@ final class Handler implements RequestHandlerInterface
             $app->getServiceManager()->get('SendResponseListener')->detach($events);
             // A PSR-7 response from a controller action is the response, as it is
             $events->attach(MvcEvent::EVENT_DISPATCH, static fn (MvcEvent $e) => $e->getResult() instanceof ResponseInterface ? $e->getResponse() : null, -1);
+            // A worker that stops ends its requests with a WorkerStoppingException: swerve answers it
+            // (a 503 when nothing was sent yet), not Laminas' error page
+            $events->attach(MvcEvent::EVENT_DISPATCH_ERROR, static function (MvcEvent $e): void {
+                if ($e->getParam('exception') instanceof WorkerStoppingException) {
+                    throw $e->getParam('exception');
+                }
+            }, \PHP_INT_MAX);
 
             $laminasRequest = $app->getRequest();
             $laminasRequest->setMetadata(ServerRequestInterface::class, $request);
@@ -154,12 +166,15 @@ final class Handler implements RequestHandlerInterface
     private function fillSuperglobals(ServerRequestInterface $request, array $files): void
     {
         $uri    = $request->getUri();
-        $server = $request->getServerParams() + [
+        $server = [
+            // The host and port the client asked for, as its Host header says (swerve's own port is
+            // another behind a proxy): the ServerUrl helper builds URLs from them
+            'SERVER_NAME'    => $uri->getHost(),
+            'SERVER_PORT'    => $uri->getPort() ?? ('https' === $uri->getScheme() ? 443 : 80),
+        ] + $request->getServerParams() + [
             'REQUEST_METHOD' => $request->getMethod(),
             'REQUEST_URI'    => $uri->getPath() . ('' !== $uri->getQuery() ? '?' . $uri->getQuery() : ''),
             'QUERY_STRING'   => $uri->getQuery(),
-            'SERVER_NAME'    => $uri->getHost(),
-            'SERVER_PORT'    => $uri->getPort() ?? ('https' === $uri->getScheme() ? 443 : 80),
         ];
         foreach ($request->getHeaders() as $name => $values) {
             $name = \strtoupper(\strtr($name, '-', '_'));
