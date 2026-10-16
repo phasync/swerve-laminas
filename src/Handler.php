@@ -12,6 +12,7 @@ use Laminas\Stdlib\ArrayUtils;
 use Laminas\Stdlib\Parameters;
 use phasync\Psr\ComposableStream;
 use phasync\Psr\Response;
+use phasync\Psr\StringStream;
 use phasync\Util\Synchronized;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -238,7 +239,7 @@ final class Handler implements RequestHandlerInterface
                 eofFunction: static fn () => \feof($stream),
             );
         } else {
-            $body = $response->getContent();
+            $body = new StringStream((string) $response->getContent());
         }
 
         return new Response($response->getStatusCode(), $headers, $body, $response->getVersion(), $response->getReasonPhrase());
